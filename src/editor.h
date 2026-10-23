@@ -51,6 +51,9 @@ public:
   Editor();
   EditorFrame frame();
   void load(Document document, bool modified = false);
+  void addReference(ReferenceImage image);
+  void changeReference(size_t index, ReferenceImage image);
+  void removeReference(size_t index);
   Document copy(bool includeActive = false) const;
   EditorSnapshot snapshot(bool includeActive = false) const;
   void saved(uint64_t version);
@@ -76,6 +79,7 @@ public:
   bool undo();
   bool redo();
   std::vector<uint32_t> layers() const;
+  std::string layerReferenceName(uint32_t layer) const;
   void layerVisible(uint32_t layer, bool visible);
   bool layerVisible(uint32_t layer) const;
 };

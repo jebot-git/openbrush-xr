@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "document.h"
+#include "reference.h"
 #include <algorithm>
 #include <cerrno>
 #include <fcntl.h>
@@ -23,6 +24,14 @@ void validate(const Stroke &s) {
 }
 void History::apply(const Edit &e, bool forward) {
   bool insert = forward == e.inserted;
+  if (e.reference) {
+    if (insert)
+      document.references.insert(document.references.begin() + e.index,
+                                 *e.reference);
+    else
+      document.references.erase(document.references.begin() + e.index);
+    return;
+  }
   if (insert)
     document.strokes.insert(document.strokes.begin() + e.index, e.stroke);
   else
@@ -45,13 +54,25 @@ void History::execute(Command command) {
   apply(command, true);
   past.push_back(std::move(command));
 }
+void History::appendReference(ReferenceImage image) {
+  validate(image);
+  execute({{document.references.size(), {}, true, std::move(image)}});
+}
+void History::eraseReference(size_t index) {
+  execute({{index, {}, false, document.references.at(index)}});
+}
+void History::replaceReference(size_t index, ReferenceImage image) {
+  validate(image);
+  execute({{index, {}, false, document.references.at(index)},
+           {index, {}, true, std::move(image)}});
+}
 void History::append(Stroke s) { appendMany({std::move(s)}); }
 void History::appendMany(std::vector<Stroke> strokes) {
   Command command;
   size_t index = document.strokes.size();
   for (auto &s : strokes) {
     validate(s);
-    command.push_back({index++, std::move(s), true});
+    command.push_back({index++, std::move(s), true, {}});
   }
   execute(std::move(command));
 }
@@ -63,7 +84,7 @@ void History::eraseMany(std::vector<size_t> indices) {
   for (auto index : indices) {
     if (index >= document.strokes.size())
       throw std::out_of_range("Stroke index");
-    command.push_back({index, document.strokes[index], false});
+    command.push_back({index, document.strokes[index], false, {}});
   }
   execute(std::move(command));
 }
@@ -77,8 +98,8 @@ void History::replace(const std::vector<std::pair<size_t, Stroke>> &changes) {
         std::find(seen.begin(), seen.end(), index) != seen.end())
       throw std::out_of_range("Invalid replacement index");
     seen.push_back(index);
-    command.push_back({index, document.strokes[index], false});
-    command.push_back({index, change.second, true});
+    command.push_back({index, document.strokes[index], false, {}});
+    command.push_back({index, change.second, true, {}});
   }
   execute(std::move(command));
 }

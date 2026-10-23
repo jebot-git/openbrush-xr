@@ -21,6 +21,10 @@ Canvas::~Canvas() {
     renderer.reset();
   }
 }
+Transform Canvas::referencePlacement() const {
+  return compose(inverse(editor.canvas()),
+                 {target, orientation(), distance * .7f});
+}
 Point Canvas::point(int x, int y) const {
   float aspect = float(w()) / std::max(1, h());
   float nx = float(x) / std::max(1, w()), ny = float(y) / std::max(1, h());
@@ -139,6 +143,19 @@ void Canvas::fit() {
       high = {std::max(high.x, p.position.x), std::max(high.y, p.position.y),
               std::max(high.z, p.position.z)};
     }
+  for (const auto &image : frame.document->references) {
+    float aspect = float(image.pixels->width) / image.pixels->height;
+    for (float x : {-.5f, .5f})
+      for (float y : {-.5f, .5f}) {
+        auto p = transform(frame.navigation,
+                           transform(image.pose, {x, y / aspect, 0}));
+        any = true;
+        low = {std::min(low.x, p.x), std::min(low.y, p.y),
+               std::min(low.z, p.z)};
+        high = {std::max(high.x, p.x), std::max(high.y, p.y),
+                std::max(high.z, p.z)};
+      }
+  }
   if (!any) {
     reset();
     return;

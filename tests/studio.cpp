@@ -2,6 +2,7 @@
 #include "studio.h"
 #include <gio/gio.h>
 #include <iostream>
+#include <png.h>
 #include <unistd.h>
 using namespace ob;
 template <class F> void wait(F fn) {
@@ -78,19 +79,52 @@ int main(int argc, char **argv) try {
           "Real artwork must load asynchronously");
   s.command("Select all");
   s.command("Duplicate selection");
+  auto imagePath = std::filesystem::path(argv[1]).parent_path() / "trace.png";
+  png_image image{};
+  image.version = PNG_IMAGE_VERSION;
+  image.width = image.height = 2;
+  image.format = PNG_FORMAT_RGBA;
+  const unsigned char rgba[] = {255, 0, 0,   255, 0,   255, 0, 255,
+                                0,   0, 255, 255, 255, 255, 0, 255};
+  require(
+      png_image_write_to_file(&image, imagePath.c_str(), 0, rgba, 0, nullptr),
+      "Create reference fixture");
+  auto originalPath = s.filePath();
+  require(s.importReference(imagePath.string()),
+          "Start async reference import");
+  wait([&] { return !s.busy(); });
+  require(s.model().copy().references.size() == 1, "Import image into drawing");
+  require(s.filePath() == originalPath && s.model().frame().dirty,
+          "Import preserves editable destination");
+  require(s.model().layerReferenceName(s.model().tools().layer) == "trace.png",
+          "New image layer must be selected");
+  s.command("Undo");
+  require(s.model().copy().references.empty(), "Undo reference import");
+  s.command("Redo");
+  s.command("Remove reference image");
+  require(s.model().copy().references.empty(),
+          "Remove reference from current layer");
+  s.command("Undo");
+  require(s.model().copy().references.size() == 1, "Undo reference removal");
+  std::filesystem::remove(imagePath);
   auto exportPath = std::string(argv[1]) + ".glb";
   auto editablePath = s.filePath();
   require(s.model().frame().dirty, "Drawing must be dirty before export");
-  require(s.menuBar().find_item("File/Export glTF..."), "Export must be available in universal menu commands");
+  require(s.menuBar().find_item("File/Export glTF..."),
+          "Export must be available in universal menu commands");
   require(s.exportGltf(exportPath), "Start background glTF export");
   wait([&] { return !s.busy(); });
-  require(std::filesystem::file_size(exportPath) > 20, "Export must produce geometry");
-  require(s.filePath() == editablePath && s.model().frame().dirty, "Export must preserve editable path and dirty state");
+  require(std::filesystem::file_size(exportPath) > 20,
+          "Export must produce geometry");
+  require(s.filePath() == editablePath && s.model().frame().dirty,
+          "Export must preserve editable path and dirty state");
   s.command("Save");
   wait([&] { return !s.busy(); });
   require(readTilt(argv[1]).strokes.size() == 2,
           "Save must write editable document");
   require(!s.model().frame().dirty, "Successful save must clear dirty state");
+  require(readTilt(argv[1]).references.size() == 1,
+          "Save embeds reference after source removal");
   // Recovery must open as unsaved artwork, never make the temporary recovery
   // path the implicit destination of an ordinary Save command.
   auto recoveryFile = std::filesystem::path(getenv("XDG_STATE_HOME")) /
@@ -112,6 +146,8 @@ int main(int argc, char **argv) try {
   require(s.filePath().empty(),
           "Recovery must require a real save destination");
   require(s.model().frame().dirty, "Recovered drawing must remain unsaved");
+  require(s.model().copy().references.size() == 1,
+          "Recovery restores embedded reference");
   s.view().capture(std::string(argv[2]) + ".scene.ppm");
   dx::screenshot(s, argv[2]);
   s.hide();

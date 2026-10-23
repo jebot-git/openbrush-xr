@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "editor.h"
+#include "reference.h"
 #include <limits>
 namespace ob {
 namespace {
@@ -26,6 +27,12 @@ EditorFrame Editor::frame() {
                                       return hiddenLayers.count(s.layer);
                                     }),
                      d->strokes.end());
+    d->references.erase(std::remove_if(d->references.begin(),
+                                       d->references.end(),
+                                       [&](const auto &image) {
+                                         return hiddenLayers.count(image.layer);
+                                       }),
+                        d->references.end());
     cached = d;
   }
   EditorFrame result{cached,
@@ -96,6 +103,8 @@ void Editor::load(Document value, bool modified) {
   std::lock_guard lock(mutex);
   for (const auto &s : value.strokes)
     validate(s);
+  for (const auto &image : value.references)
+    validate(image);
   document = std::move(value);
   history = std::make_unique<History>(document);
   if (modified)
@@ -105,6 +114,34 @@ void Editor::load(Document value, bool modified) {
   selected.clear();
   hiddenLayers.clear();
   navigation = {};
+  changed();
+}
+void Editor::addReference(ReferenceImage image) {
+  validate(image);
+  std::lock_guard lock(mutex);
+  if (document.references.size() >= 128)
+    throw std::runtime_error("Too many reference images");
+  size_t pixels = size_t(image.pixels->width) * image.pixels->height;
+  for (const auto &r : document.references)
+    pixels += size_t(r.pixels->width) * r.pixels->height;
+  if (pixels > 32 * 1024 * 1024)
+    throw std::runtime_error("Reference images exceed 32 megapixels total");
+  finishLocked();
+  history->appendReference(std::move(image));
+  changed();
+}
+void Editor::changeReference(size_t index, ReferenceImage image) {
+  std::lock_guard lock(mutex);
+  finishLocked();
+  // Placement edits retain the immutable asset.
+  image.pixels = document.references.at(index).pixels;
+  history->replaceReference(index, std::move(image));
+  changed();
+}
+void Editor::removeReference(size_t index) {
+  std::lock_guard lock(mutex);
+  finishLocked();
+  history->eraseReference(index);
   changed();
 }
 void Editor::saved(uint64_t version) {
@@ -396,7 +433,16 @@ std::vector<uint32_t> Editor::layers() const {
   std::set<uint32_t> ids{settings.layer};
   for (auto &s : document.strokes)
     ids.insert(s.layer);
+  for (const auto &image : document.references)
+    ids.insert(image.layer);
   return {ids.begin(), ids.end()};
+}
+std::string Editor::layerReferenceName(uint32_t layer) const {
+  std::lock_guard lock(mutex);
+  for (const auto &image : document.references)
+    if (image.layer == layer)
+      return image.name.empty() ? "Reference" : image.name;
+  return {};
 }
 void Editor::layerVisible(uint32_t layer, bool visible) {
   std::lock_guard lock(mutex);

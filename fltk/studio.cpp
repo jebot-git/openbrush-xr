@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "studio.h"
 #include "gltf.h"
+#include "reference.h"
 #include "xr.h"
 #include <FL/Fl_Color_Chooser.H>
 #include <FL/Fl_Native_File_Chooser.H>
@@ -38,6 +39,7 @@ Studio::Studio() : dx::GpuWindow(1100, 790, "OpenBrush Native") {
            {"File/Open...", FL_CTRL + 'o'},
            {"File/Save", FL_CTRL + 's'},
            {"File/Save as...", FL_CTRL + FL_SHIFT + 's'},
+           {"File/Import reference image...", 0},
            {"File/Export glTF...", 0},
            {"File/Quit", FL_CTRL + 'q'},
            {"Edit/Undo", FL_CTRL + 'z'},
@@ -47,6 +49,8 @@ Studio::Studio() : dx::GpuWindow(1100, 790, "OpenBrush Native") {
            {"Edit/Duplicate selection", FL_CTRL + 'd'},
            {"Edit/Transform selection...", 0},
            {"Edit/Recolor selection", 0},
+           {"Layer/Reference image properties...", 0},
+           {"Layer/Remove reference image", 0},
            {"View/Fit drawing", 'f'},
            {"View/Reset view", 'r'},
            {"XR/Start XR painting", FL_F + 6},
@@ -228,13 +232,17 @@ void Studio::syncControls() {
   auto ids = editor.layers();
   std::string signature;
   for (auto id : ids)
-    signature += std::to_string(id) + (editor.layerVisible(id) ? "v;" : "h;");
+    signature += std::to_string(id) + (editor.layerVisible(id) ? "v;" : "h;") +
+                 editor.layerReferenceName(id);
   if (signature != layerSignature) {
     layerIds = ids;
     layerList.clear();
     for (auto id : ids)
       layerList.add(("Layer " + std::to_string(id) +
-                     (editor.layerVisible(id) ? "" : " [hidden]"))
+                     (editor.layerVisible(id) ? "" : " [hidden]") +
+                     (editor.layerReferenceName(id).empty()
+                          ? ""
+                          : " - " + editor.layerReferenceName(id)))
                         .c_str());
     layerSignature = signature;
   }
@@ -268,7 +276,23 @@ void Studio::poll() {
       error = result.error;
       afterIo = {};
     } else {
-      if (result.load) {
+      if (result.imported) {
+        try {
+          auto layers = editor.layers();
+          auto layer = *std::max_element(layers.begin(), layers.end());
+          if (layer == UINT32_MAX)
+            throw std::runtime_error("No free image layer ID.");
+          result.reference.layer = ++layer;
+          editor.addReference(std::move(result.reference));
+          auto settings = editor.tools();
+          settings.layer = layer;
+          editor.configure(settings);
+          syncControls();
+        } catch (const std::exception &e) {
+          error = e.what();
+          return;
+        }
+      } else if (result.load) {
         editor.load(std::move(result.document), result.path == recoveredFrom);
         currentPath = result.path == recoveredFrom ? "" : result.path;
         canvas.fit();
@@ -292,6 +316,10 @@ void Studio::poll() {
       error = message;
   }
   auto frame = editor.frame();
+  bool referenceLayer =
+      !editor.layerReferenceName(frame.settings.layer).empty();
+  dx::enable_menu(menu, "Layer/Reference image properties...", referenceLayer);
+  dx::enable_menu(menu, "Layer/Remove reference image", referenceLayer);
   dx::enable_menu(menu, "Edit/Undo", frame.undo);
   dx::enable_menu(menu, "Edit/Redo", frame.redo);
   dx::enable_menu(menu, "XR/Start XR painting", !xr.valid());
@@ -322,7 +350,9 @@ void Studio::poll() {
   std::string message =
       error.empty()
           ? std::to_string(frame.document->strokes.size()) + " strokes · " +
-                std::to_string(frame.selected.size()) + " selected · " +
+                std::to_string(frame.document->references.size()) +
+                " images · " + std::to_string(frame.selected.size()) +
+                " selected · " +
                 (xr.valid()
                      ? (xrStop ? "Stopping XR..." : "XR painting active")
                      : (io.valid() ? "File operation..."
@@ -425,34 +455,112 @@ bool Studio::save(bool saveAs) {
   });
   return true;
 }
+void Studio::referenceDialog() {
+  if (io.valid()) {
+    error = "Wait for the file operation to finish.";
+    return;
+  }
+  Fl_Native_File_Chooser chooser;
+  chooser.title("Import reference image into a new layer");
+  chooser.type(Fl_Native_File_Chooser::BROWSE_FILE);
+  chooser.filter("Reference images\t*.{png,jpg,jpeg,PNG,JPG,JPEG}");
+  if (chooser.show() == 0)
+    importReference(chooser.filename());
+}
+bool Studio::importReference(const std::string &path) {
+  if (io.valid()) {
+    error = "Wait for the file operation to finish.";
+    return false;
+  }
+  auto pose = canvas.referencePlacement();
+  error.clear();
+  io = std::async(std::launch::async, [path, pose] {
+    IoResult result;
+    result.imported = true;
+    try {
+      result.reference = readReference(path);
+      result.reference.pose = pose;
+      result.reference.pose.scale *=
+          std::min(1.f, float(result.reference.pixels->width) /
+                            result.reference.pixels->height);
+    } catch (const std::exception &e) {
+      result.error = e.what();
+    }
+    return result;
+  });
+  return true;
+}
+void Studio::referenceProperties() {
+  auto document = editor.copy();
+  for (size_t i = document.references.size(); i > 0; --i) {
+    auto image = document.references[i - 1];
+    if (image.layer != editor.tools().layer)
+      continue;
+    char preset[128];
+    snprintf(preset, sizeof(preset), "0 0 %.6g %.6g", image.pose.scale,
+             image.opacity);
+    auto value = fl_input(
+        "Reference: offset X Y (meters), width (meters), opacity (0-1):",
+        preset);
+    if (value) {
+      float x, y, width, opacity;
+      if (sscanf(value, "%f %f %f %f", &x, &y, &width, &opacity) != 4)
+        throw std::runtime_error("Enter four numbers");
+      image.pose.position =
+          image.pose.position + rotate(image.pose.orientation, {x, y, 0});
+      image.pose.scale = width;
+      image.opacity = opacity;
+      editor.changeReference(i - 1, std::move(image));
+    }
+    return;
+  }
+  error = "Select a layer containing a reference image.";
+}
 void Studio::exportDialog() {
-  if (io.valid()) { error = "Wait for the file operation to finish."; return; }
+  if (io.valid()) {
+    error = "Wait for the file operation to finish.";
+    return;
+  }
   Fl_Native_File_Chooser chooser;
   chooser.title("Export glTF");
   chooser.type(Fl_Native_File_Chooser::BROWSE_SAVE_FILE);
   chooser.options(Fl_Native_File_Chooser::SAVEAS_CONFIRM);
   chooser.filter("glTF (embedded buffer)\t*.gltf\nBinary glTF\t*.glb");
-  auto preset = currentPath.empty() ? std::filesystem::path("Untitled.gltf") : std::filesystem::path(currentPath).replace_extension(".gltf");
+  auto preset =
+      currentPath.empty()
+          ? std::filesystem::path("Untitled.gltf")
+          : std::filesystem::path(currentPath).replace_extension(".gltf");
   chooser.preset_file(preset.c_str());
-  if (chooser.show() != 0) return;
+  if (chooser.show() != 0)
+    return;
   std::string destination = chooser.filename();
   auto extension = std::filesystem::path(destination).extension().string();
   if (extension != ".gltf" && extension != ".glb") {
     destination += chooser.filter_value() == 1 ? ".glb" : ".gltf";
-    if (std::filesystem::exists(destination) && fl_choice("Replace existing export %s?", "Cancel", "Replace", nullptr, destination.c_str()) != 1) return;
+    if (std::filesystem::exists(destination) &&
+        fl_choice("Replace existing export %s?", "Cancel", "Replace", nullptr,
+                  destination.c_str()) != 1)
+      return;
   }
   exportGltf(destination);
 }
 bool Studio::exportGltf(const std::string &path) {
-  if (io.valid()) { error = "Wait for the file operation to finish."; return false; }
+  if (io.valid()) {
+    error = "Wait for the file operation to finish.";
+    return false;
+  }
   editor.finish();
   error.clear();
   io = std::async(std::launch::async, [this, path] {
     IoResult result;
     result.path = path;
     result.exported = true;
-    try { auto snapshot = editor.snapshot(); writeGltf(snapshot.document, path); }
-    catch (const std::exception &e) { result.error = e.what(); }
+    try {
+      auto snapshot = editor.snapshot();
+      writeGltf(snapshot.document, path);
+    } catch (const std::exception &e) {
+      result.error = e.what();
+    }
     return result;
   });
   return true;
@@ -551,7 +659,18 @@ void Studio::command(const std::string &name) {
       save();
     else if (name == "Save as...")
       save(true);
-    else if (name == "Export glTF...")
+    else if (name == "Import reference image...")
+      referenceDialog();
+    else if (name == "Reference image properties...")
+      referenceProperties();
+    else if (name == "Remove reference image") {
+      auto document = editor.copy();
+      for (size_t i = document.references.size(); i > 0; --i)
+        if (document.references[i - 1].layer == editor.tools().layer) {
+          editor.removeReference(i - 1);
+          break;
+        }
+    } else if (name == "Export glTF...")
       exportDialog();
     else if (name == "Quit")
       close();
@@ -591,7 +710,8 @@ void Studio::command(const std::string &name) {
           "Desktop: left uses the tool; right drag orbits; middle/Shift drag "
           "pans; wheel zooms.\nXR: right trigger uses the tool; left trigger "
           "erases. Touch: X tools, Y eraser; A/B undo/redo.\n"
-          "Left stick: brush/size. Right stick: color/opacity (between strokes).\n"
+          "Left stick: brush/size. Right stick: color/opacity (between "
+          "strokes).\n"
           "Left stick click: mirror. Right stick click: recenter tools.\n"
           "Firm trigger pull clicks palette buttons. Use the headset "
           "palette for brushes, colors, layers, editing and Save. Left X/menu "

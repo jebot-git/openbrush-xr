@@ -12,7 +12,7 @@ than a claim of full Open Brush feature or visual parity.
 ## Build and run
 
 Dependencies: C++17, CMake, Ninja, OpenXR loader/development headers, EGL/OpenGL,
-libarchive, nlohmann JSON headers, FreeType, Fontconfig, GIO, Wayland development headers,
+libarchive, nlohmann JSON headers, FreeType, Fontconfig, libpng, libjpeg, GIO, Wayland development headers,
 `wayland-scanner`, and the de-xr patched FLTK 1.4.5. Tests also use Python 3's
 standard library; the optional desktop interaction test needs Xvfb.
 
@@ -82,6 +82,30 @@ drawings from dead processes for recovery. Recovery opens as unsaved artwork
 and requires a real save destination. Cancel/save/discard prompts protect
 changes when opening, creating or closing drawings. Runtime data is under
 `$XDG_STATE_HOME/openbrush-native` (normally `~/.local/state/openbrush-native`).
+
+## Reference images on the canvas
+
+Use **File → Import reference image...** to load a PNG or JPEG into a new layer.
+The image appears at the current drawing plane, facing the current view, with
+its aspect ratio preserved. Its layer is selected and labeled with the filename.
+Paint over it normally, or select a different layer for separate artwork.
+Reference images are underlays: painted strokes remain visible above them.
+
+Select the image layer and use **Layer → Reference image properties...** to move
+it along its plane, change its width in meters, or set opacity. The existing layer
+visibility toggle hides the reference. **Layer → Remove reference image** removes
+it. Import, placement/opacity changes and removal support Undo/Redo. Fit drawing
+includes visible image corners. Images also appear as spatial planes in XR.
+
+References are embedded as normalized PNG assets in `.tilt` saves and recovery
+files. The source image can be moved or deleted after import. Their shared pixel
+assets avoid repeated decoding and texture uploads while painting; import and
+save run in background workers. PNG alpha is retained. Supported limits are
+8192 pixels per side, 16 megapixels per image, 32 megapixels total and 128 images.
+The native `DeXrReferenceImages` metadata extension stores placement, layer and
+opacity; original Open Brush `ImageIndex` records are preserved independently
+and are not yet loaded from external image libraries. These reference underlays
+are excluded from glTF stroke-mesh export.
 
 ## Native XR path
 
@@ -217,7 +241,7 @@ approximations, not shader/texture parity with Unity Open Brush. Light is
 unshaded; stamp brushes produce oriented dots/stars; Highlighter uses opacity.
 Per-point replacement/multiply/add color extensions are interpreted. Unknown
 brush GUIDs are preserved and rendered using the wire fallback. Referenced
-models/images/videos, scene/layer transforms, environments and original brush
+models, original Open Brush image-library entries and videos, scene/layer transforms, environments and original brush
 materials/textures are not yet rendered; their metadata is retained. Additional
 export formats beyond glTF are not implemented.
 
@@ -232,7 +256,9 @@ trigger navigation, pivot scaling, room-space tool sizes, light/2x Appearance,
 malformed settings and CPU/GPU palette pixel agreement. Touch tests cover the
 production binding table, extension gating, stick repeat/deadzones, stroke guards,
 button shortcuts, haptic requests and firm-trigger palette activation.
-Background-save tests block the writer to verify nonblocking requests, queue
+Reference tests cover PNG/JPEG decoding, transparency, undo/redo, layer visibility,
+embedded saves/recovery without the source file, GPU image orientation and painted
+strokes over the image. Background-save tests block the writer to verify nonblocking requests, queue
 coalescing, version guards, hidden-layer preservation, failed-write recovery and
 shutdown drain. Build with the optional X11
 backend to include a private-display/private-bus FLTK interaction test covering

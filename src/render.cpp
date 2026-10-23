@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "render.h"
+#include "reference-render.h"
 #include <cstddef>
 namespace ob {
 Mat4 identity() { return {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1}; }
@@ -91,6 +92,10 @@ void main(){float light=.45+.55*abs(dot(normalize(n),normalize(vec3(.3,.8,.6))))
     glGenBuffers(1, &batch->ebo);
   }
 }
+void Renderer::abandon() {
+  shader=0;scene={};live={};cachedRevision=0;
+  if(references)references->abandon();
+}
 Renderer::~Renderer() {
   for (auto *b : {&scene, &live}) {
     glDeleteBuffers(1, &b->vbo);
@@ -159,6 +164,8 @@ void Renderer::draw(const Document &d, const std::vector<Stroke> *active,
                       GL_ONE_MINUS_SRC_ALPHA);
   glClearColor(background.r, background.g, background.b, background.a);
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+  if(!references)references=std::make_unique<ReferenceRenderer>();
+  references->draw(d.references,vp);
   glUseProgram(shader);
   glUniformMatrix4fv(matrix, 1, GL_FALSE, vp.data());
   auto combine = [](const std::vector<Stroke> &strokes) {

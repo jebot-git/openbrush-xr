@@ -2,6 +2,7 @@
 // Format derived from Open Brush SketchWriter.cs and TiltFile.cs; see
 // provenance.
 #include "document.h"
+#include "reference.h"
 #include <archive.h>
 #include <archive_entry.h>
 #include <cstring>
@@ -304,12 +305,14 @@ Document readTilt(const std::filesystem::path &path) {
   files.erase("metadata.json");
   files.erase("main.json");
   d.attachments = std::move(files);
+  loadReferences(d);
   return d;
 }
 void writeTilt(const Document &d, const std::filesystem::path &path) {
   Json metadata;
   auto sketch = encodeSketch(d, metadata);
   auto files = d.attachments;
+  storeReferences(d, metadata, files);
   files["data.sketch"] = std::move(sketch);
   auto json = metadata.dump(2);
   files["metadata.json"] = Bytes(json.begin(), json.end());

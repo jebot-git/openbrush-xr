@@ -215,7 +215,7 @@ const std::vector<PaletteButton> &Palette::layout(const EditorFrame &frame) {
     return buttons;
   }
   add(312, 8, 148, 42, "Fit drawing", "fit", false,
-      !frame.document->strokes.empty());
+      !frame.document->strokes.empty() || !frame.document->references.empty());
   const char *tools[] = {"Paint", "Erase", "Select", "Recolor", "Move"};
   for (int i = 0; i < 5; ++i)
     add(12 + i * 124, 66, 116, 42, tools[i], "tool:" + std::to_string(i),
@@ -319,6 +319,18 @@ bool Palette::activate(const std::string &cmd, Editor &editor,
         high = {std::max(high.x, p.position.x), std::max(high.y, p.position.y),
                 std::max(high.z, p.position.z)};
       }
+    for (const auto &image : content.document->references) {
+      float aspect = float(image.pixels->width) / image.pixels->height;
+      for (float x : {-.5f, .5f})
+        for (float y : {-.5f, .5f}) {
+          auto p = ob::transform(image.pose, {x, y / aspect, 0});
+          any = true;
+          low = {std::min(low.x, p.x), std::min(low.y, p.y),
+                 std::min(low.z, p.z)};
+          high = {std::max(high.x, p.x), std::max(high.y, p.y),
+                  std::max(high.z, p.z)};
+        }
+    }
     if (!any)
       return false;
     float scale =

@@ -32,6 +32,7 @@ public:
   ~Canvas();
   int handle(int event) override;
   void reset();
+  Transform referencePlacement() const;
   void fit();
   bool capture(const std::filesystem::path &path);
 };
@@ -58,7 +59,8 @@ class Studio : public dx::GpuWindow {
   struct IoResult {
     Document document;
     std::string path, error;
-    bool load = false, exported = false;
+    bool load = false, exported = false, imported = false;
+    ReferenceImage reference;
     uint64_t version = 0;
   };
   std::future<IoResult> io;
@@ -79,6 +81,8 @@ class Studio : public dx::GpuWindow {
   void maybeDiscard(std::function<void()> next);
   void openDialog();
   void exportDialog();
+  void referenceDialog();
+  void referenceProperties();
   bool save(bool saveAs = false);
   void autosave();
   void removeRecovery();
@@ -90,6 +94,7 @@ public:
   void command(const std::string &name);
   void open(const std::string &path);
   bool exportGltf(const std::string &path);
+  bool importReference(const std::string &path);
   void startXR(unsigned frames = 0);
   void close();
   void restore();

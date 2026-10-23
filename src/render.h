@@ -13,7 +13,9 @@ Mat4 multiply(const Mat4 &a, const Mat4 &b);
 Mat4 viewMatrix(Vec3 position, Quat orientation);
 Mat4 projection(float left, float right, float down, float up,
                 float near = .03f, float far = 100.f);
+class ReferenceRenderer;
 class Renderer {
+  std::unique_ptr<ReferenceRenderer> references;
   struct Batch {
     GLuint vao = 0, vbo = 0, ebo = 0;
     GLsizei count = 0;
@@ -28,12 +30,7 @@ class Renderer {
 public:
   Renderer();
   ~Renderer();
-  void abandon() {
-    shader = 0;
-    scene = {};
-    live = {};
-    cachedRevision = 0;
-  }
+  void abandon();
   void extras(const std::vector<Stroke> &strokes, const Mat4 &viewProjection);
   void draw(const Document &d, const std::vector<Stroke> *active,
             const Mat4 &viewProjection, int width, int height,

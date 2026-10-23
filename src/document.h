@@ -4,7 +4,9 @@
 #include <cstdint>
 #include <filesystem>
 #include <map>
+#include <memory>
 #include <nlohmann/json.hpp>
+#include <optional>
 #include <string>
 #include <vector>
 namespace ob {
@@ -29,8 +31,20 @@ struct Stroke {
   // Preserve unknown extensions when existing artworks are edited and saved.
   std::map<unsigned, Bytes> extensions;
 };
+struct RasterImage {
+  int width = 0, height = 0;
+  Bytes rgba, png;
+};
+struct ReferenceImage {
+  std::string name;
+  uint32_t layer = 0;
+  Transform pose{{0, 1.3f, -1.2f}, {}, .6f}; // Scale is image width in meters.
+  float opacity = .5f;
+  std::shared_ptr<const RasterImage> pixels;
+};
 struct Document {
   std::vector<Stroke> strokes;
+  std::vector<ReferenceImage> references;
   Bytes sketchHeader;
   Json metadata = Json::object();
   std::map<std::string, Bytes> attachments;
@@ -42,6 +56,7 @@ class History {
     size_t index;
     Stroke stroke;
     bool inserted;
+    std::optional<ReferenceImage> reference;
   };
   Document &document;
   using Command = std::vector<Edit>;
@@ -55,6 +70,9 @@ class History {
 public:
   explicit History(Document &value) : document(value) {}
   void append(Stroke stroke);
+  void appendReference(ReferenceImage image);
+  void eraseReference(size_t index);
+  void replaceReference(size_t index, ReferenceImage image);
   void erase(size_t index);
   void appendMany(std::vector<Stroke> strokes);
   void replace(const std::vector<std::pair<size_t, Stroke>> &strokes);
