@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+#include "scene.h"
 #include "studio.h"
 #include <fstream>
 namespace ob {
@@ -136,7 +137,9 @@ void Canvas::fit() {
   for (const auto &s : frame.document->strokes)
     for (auto &point : s.points) {
       auto p = point;
-      p.position = transform(frame.navigation, p.position);
+      p.position = transform(
+          frame.navigation,
+          transform(strokeTransform(*frame.document, s.layer), p.position));
       any = true;
       low = {std::min(low.x, p.position.x), std::min(low.y, p.position.y),
              std::min(low.z, p.position.z)};

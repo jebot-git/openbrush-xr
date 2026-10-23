@@ -212,10 +212,12 @@ The exporter uses glTF 2.0 and the same native brush meshes as the renderer,
 including pressure-dependent widths, normals, per-point RGBA colors, alpha
 blending and double-sided surfaces. Coordinates remain right-handed, Y-up,
 in meters. Stroke nodes are grouped by layer; brush GUIDs, source indices and
-group IDs are recorded in `extras`. Light uses `KHR_materials_unlit`; other
+group IDs are recorded in `extras`. glTF vertex colors are clamped to its legal
+0–1 range; original stroke colors, including HDR values, remain in node `extras`.
+Original `.tilt` colors remain unchanged. Light uses `KHR_materials_unlit`; other
 brushes use rough, nonmetallic materials. Partial emission and original Unity
-materials, brush textures, reference media and scene transforms are not
-reconstructed. Export is a mesh interchange format; keep `.tilt` for editable
+materials, brush textures and reference media are not reconstructed. Scene and
+layer transforms are applied to exported mesh positions and normals. Export is a mesh interchange format; keep `.tilt` for editable
 strokes and preserved source metadata. Unknown brushes use the native fallback.
 
 The `.gltf` and `.glb` outputs follow the
@@ -225,6 +227,35 @@ indices, colors, alpha, layers, empty scenes, both CLIs and export failure
 preservation. The FLTK interaction test checks asynchronous export and that it
 does not mark the drawing saved. Sample exports also pass Khronos glTF Validator
 with zero errors or warnings; that validator is not a runtime dependency.
+
+## Original `.tilt` interoperability
+
+Packed and loose-directory artworks retain source-local stroke coordinates.
+Rendering, picking, painting, mirroring and selection edits apply the original
+`SceneTransformInRoomSpace` and per-layer transforms in right-handed meters;
+new or edited strokes are saved back into the appropriate layer space. Scene
+navigation remains a separate session transform. Imported layer names and
+visibility are respected, and visibility changes persist in original metadata.
+Legacy layer transforms with zero scale follow Open Brush's identity recovery.
+
+Untouched source positions/sizes retain their original float values on export,
+preventing unit conversion drift. Original sketch version, extension presence,
+missing random seeds, duplicate/unused brush-table entries, external model/image/video
+references, opaque sketch/header
+bytes, unknown metadata and nested attachments survive round trips. Existing
+loose directories save through an atomic directory exchange; packed saves use
+atomic file replacement. External media references are retained without being
+silently discarded; **Help → Artwork information...** reports unsupported media
+and strokes using fallback geometry. This is file-format interoperability, not
+original Unity brush-material parity.
+
+Independent tests construct v5/v6 files with sparse/unknown extensions, HDR
+colors, unusual coordinates and extended container headers, then verify exact
+sketch bytes across repeated saves. Manual verification also checks the upstream
+**Credits** (1,128 strokes, 26,803 points) and **NoodlesCabin** (10,112 strokes,
+339,898 points): both preserve their complete original `data.sketch` bytes and
+all metadata on export. Those larger upstream artworks are verification inputs,
+not redistributed application assets.
 
 ## Artwork and brush coverage
 
@@ -241,7 +272,7 @@ approximations, not shader/texture parity with Unity Open Brush. Light is
 unshaded; stamp brushes produce oriented dots/stars; Highlighter uses opacity.
 Per-point replacement/multiply/add color extensions are interpreted. Unknown
 brush GUIDs are preserved and rendered using the wire fallback. Referenced
-models, original Open Brush image-library entries and videos, scene/layer transforms, environments and original brush
+models, original Open Brush image-library entries and videos, environments and original brush
 materials/textures are not yet rendered; their metadata is retained. Additional
 export formats beyond glTF are not implemented.
 

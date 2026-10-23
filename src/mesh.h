@@ -18,4 +18,5 @@ Mesh strokeMesh(const Stroke &stroke, BrushShape shape = BrushShape::Tube,
 
 namespace ob {
 Mesh brushMesh(const Stroke &stroke);
+Mesh documentMesh(const Document &document,const Stroke &stroke);
 }

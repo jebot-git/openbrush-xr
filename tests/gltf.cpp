@@ -21,6 +21,7 @@ int main(int argc, char **argv) {
                 {{float(i) * .1f + .1f, 1.2f, -1.2f}, {}, .5f, 2}};
     document.strokes.push_back(s);
   }
+  document.strokes[1].color = {1.5f, -.2f, .8f, .5f};
   // Replace per-point colors on the wire brush.
   document.strokes[0].extensions[16] = {1,   0, 0,   0, 3, 0,   0,
                                         0,   7, 255, 0, 0, 255, 0,

@@ -12,4 +12,5 @@ struct Brush {
 const std::vector<Brush> &brushes();
 const Brush &brushFor(const std::string &guid);
 bool knownBrush(const std::string &guid);
+bool sameBrush(const std::string &a, const std::string &b);
 } // namespace ob

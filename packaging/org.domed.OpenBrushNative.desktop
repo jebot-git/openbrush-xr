@@ -9,7 +9,7 @@ Terminal=false
 StartupNotify=true
 StartupWMClass=org.domed.OpenBrushNative
 Categories=Graphics;3DGraphics;
-MimeType=application/x-openbrush-tilt;
+MimeType=application/vnd.google-tiltbrush.tilt;application/x-openbrush-tilt;
 Keywords=VR;XR;OpenXR;drawing;painting;Open Brush;Tilt Brush;
 Actions=XR;
 

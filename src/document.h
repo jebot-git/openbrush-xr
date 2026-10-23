@@ -21,12 +21,15 @@ struct Point {
   float pressure = 1;
   uint32_t timeMs = 0;
   std::map<unsigned, uint32_t> extensions;
+  std::optional<Vec3> savedPosition;
 };
 struct Stroke {
   std::string brush = "2d35bcf0-e4d8-452c-97b1-3311be063130";
   Color color;
-  float size = .015f, scale = 1;
+  float size = .015f, scale = 1, savedSize = 0;
   uint32_t flags = 0, group = 0, seed = 0, layer = 0;
+  uint32_t savedStrokeMask = 31, savedPointMask = 3,
+           savedBrushIndex = UINT32_MAX;
   std::vector<Point> points;
   // Preserve unknown extensions when existing artworks are edited and saved.
   std::map<unsigned, Bytes> extensions;
@@ -45,7 +48,8 @@ struct ReferenceImage {
 struct Document {
   std::vector<Stroke> strokes;
   std::vector<ReferenceImage> references;
-  Bytes sketchHeader;
+  Bytes sketchHeader, containerHeader;
+  uint32_t sketchVersion = 0;
   Json metadata = Json::object();
   std::map<std::string, Bytes> attachments;
   std::vector<std::string> warnings;

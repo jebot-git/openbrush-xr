@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "render.h"
 #include "reference-render.h"
+#include "scene.h"
 #include <cstddef>
 namespace ob {
 Mat4 identity() { return {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1}; }
@@ -93,8 +94,12 @@ void main(){float light=.45+.55*abs(dot(normalize(n),normalize(vec3(.3,.8,.6))))
   }
 }
 void Renderer::abandon() {
-  shader=0;scene={};live={};cachedRevision=0;
-  if(references)references->abandon();
+  shader = 0;
+  scene = {};
+  live = {};
+  cachedRevision = 0;
+  if (references)
+    references->abandon();
 }
 Renderer::~Renderer() {
   for (auto *b : {&scene, &live}) {
@@ -164,14 +169,23 @@ void Renderer::draw(const Document &d, const std::vector<Stroke> *active,
                       GL_ONE_MINUS_SRC_ALPHA);
   glClearColor(background.r, background.g, background.b, background.a);
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-  if(!references)references=std::make_unique<ReferenceRenderer>();
-  references->draw(d.references,vp);
+  if (!references)
+    references = std::make_unique<ReferenceRenderer>();
+  auto images = d.references;
+  images.erase(std::remove_if(images.begin(), images.end(),
+                              [&](const auto &image) {
+                                return !sourceLayerVisible(d, image.layer);
+                              }),
+               images.end());
+  references->draw(images, vp);
   glUseProgram(shader);
   glUniformMatrix4fv(matrix, 1, GL_FALSE, vp.data());
-  auto combine = [](const std::vector<Stroke> &strokes) {
+  auto combine = [&](const std::vector<Stroke> &strokes, bool local) {
     Mesh all;
     for (const auto &s : strokes) {
-      auto mesh = brushMesh(s);
+      if (local && !sourceLayerVisible(d, s.layer))
+        continue;
+      auto mesh = local ? documentMesh(d, s) : brushMesh(s);
       uint32_t start = all.vertices.size();
       all.vertices.insert(all.vertices.end(), mesh.vertices.begin(),
                           mesh.vertices.end());
@@ -181,12 +195,12 @@ void Renderer::draw(const Document &d, const std::vector<Stroke> *active,
     return all;
   };
   if (!revision || revision != cachedRevision) {
-    upload(scene, combine(d.strokes));
+    upload(scene, combine(d.strokes, true));
     cachedRevision = revision;
   }
   render(scene);
   if (active && !active->empty()) {
-    upload(live, combine(*active));
+    upload(live, combine(*active, false));
     render(live);
   }
   glBindVertexArray(0);

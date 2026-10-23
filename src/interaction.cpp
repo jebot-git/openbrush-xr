@@ -72,7 +72,7 @@ void Interaction::shortcuts(const SessionControls &controls, bool right) {
   if (brushStep) {
     int index = 0;
     for (size_t i = 0; i < brushes().size(); ++i)
-      if (brushes()[i].guid == value.brush)
+      if (sameBrush(brushes()[i].guid, value.brush))
         index = i;
     index = (index + brushStep + brushes().size()) % brushes().size();
     value.brush = brushes()[index].guid;

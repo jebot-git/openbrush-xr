@@ -15,15 +15,21 @@ const std::vector<Brush> &brushes() {
        .5f}};
   return list;
 }
+bool sameBrush(const std::string &a, const std::string &b) {
+  auto fold = [](char c) { return c >= 'A' && c <= 'Z' ? char(c + 32) : c; };
+  return a.size() == b.size() &&
+         std::equal(a.begin(), a.end(), b.begin(),
+                    [&](char x, char y) { return fold(x) == fold(y); });
+}
 bool knownBrush(const std::string &id) {
   for (auto &b : brushes())
-    if (b.guid == id)
+    if (sameBrush(b.guid, id))
       return true;
   return false;
 }
 const Brush &brushFor(const std::string &id) {
   for (auto &b : brushes())
-    if (b.guid == id)
+    if (sameBrush(b.guid, id))
       return b;
   return brushes().front();
 }

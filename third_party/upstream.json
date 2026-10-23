@@ -6,7 +6,11 @@
     "Assets/Scripts/Save/SketchWriter.cs",
     "Assets/Scripts/Save/TiltFile.cs",
     "Assets/Scripts/Save/SketchMetadata.cs",
-    "Assets/Scripts/App.cs"
+    "Assets/Scripts/App.cs",
+    "Assets/Scripts/Save/SaveLoadScript.cs",
+    "Assets/Scripts/CanvasScript.cs",
+    "Assets/Scripts/SceneScript.cs",
+    "Assets/Scripts/JsonGlue.cs"
   ],
   "brush_catalog_entries": 83,
   "fixture": "Assets/Scripts/Export/Tests/OneStroke.tilt"

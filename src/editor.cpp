@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "editor.h"
 #include "reference.h"
+#include "scene.h"
 #include <limits>
 namespace ob {
 namespace {
@@ -11,6 +12,11 @@ Stroke mirrorStroke(Stroke s) {
                      p.orientation.w};
   }
   return s;
+}
+Stroke mirrorLocal(const Document &d, const Stroke &s) {
+  auto pose = strokeTransform(d, s.layer);
+  return transformedStroke(mirrorStroke(transformedStroke(s, pose)),
+                           inverse(pose));
 }
 } // namespace
 Editor::Editor() : history(std::make_unique<History>(document)) {}
@@ -47,9 +53,11 @@ EditorFrame Editor::frame() {
                      toolRevision,
                      !hiddenLayers.count(settings.layer)};
   if (owner && !active.points.empty()) {
-    result.active.push_back(active);
+    auto world =
+        transformedStroke(active, strokeTransform(document, active.layer));
+    result.active.push_back(world);
     if (settings.mirror)
-      result.active.push_back(mirrorStroke(active));
+      result.active.push_back(mirrorStroke(world));
   }
   if (!selected.empty()) {
     Vec3 low{1e30f, 1e30f, 1e30f}, high{-1e30f, -1e30f, -1e30f};
@@ -58,11 +66,12 @@ EditorFrame Editor::frame() {
       if (!hiddenLayers.count(document.strokes[i].layer))
         for (auto &p : document.strokes[i].points) {
           any = true;
-          low = {std::min(low.x, p.position.x), std::min(low.y, p.position.y),
-                 std::min(low.z, p.position.z)};
-          high = {std::max(high.x, p.position.x),
-                  std::max(high.y, p.position.y),
-                  std::max(high.z, p.position.z)};
+          auto world = transform(
+              strokeTransform(document, document.strokes[i].layer), p.position);
+          low = {std::min(low.x, world.x), std::min(low.y, world.y),
+                 std::min(low.z, world.z)};
+          high = {std::max(high.x, world.x), std::max(high.y, world.y),
+                  std::max(high.z, world.z)};
         }
     if (any) {
       low = low - Vec3{.008f, .008f, .008f};
@@ -91,7 +100,7 @@ Document Editor::copy(bool includeActive) const {
   if (includeActive && owner && !active.points.empty()) {
     result.strokes.push_back(active);
     if (settings.mirror)
-      result.strokes.push_back(mirrorStroke(active));
+      result.strokes.push_back(mirrorLocal(document, active));
   }
   return result;
 }
@@ -105,6 +114,7 @@ void Editor::load(Document value, bool modified) {
     validate(s);
   for (const auto &image : value.references)
     validate(image);
+  validateScene(value);
   document = std::move(value);
   history = std::make_unique<History>(document);
   if (modified)
@@ -113,6 +123,9 @@ void Editor::load(Document value, bool modified) {
   active = Stroke{};
   selected.clear();
   hiddenLayers.clear();
+  for (size_t i = 0; i < sourceLayerCount(document); ++i)
+    if (!sourceLayerVisible(document, i))
+      hiddenLayers.insert(i);
   navigation = {};
   changed();
 }
@@ -172,7 +185,7 @@ void Editor::finishLocked() {
   if (owner && !active.points.empty()) {
     std::vector<Stroke> strokes{std::move(active)};
     if (settings.mirror)
-      strokes.push_back(mirrorStroke(strokes.front()));
+      strokes.push_back(mirrorLocal(document, strokes.front()));
     history->appendMany(std::move(strokes));
     selected.clear();
     changed();
@@ -236,6 +249,11 @@ bool Editor::sampleInternal(int source, Point p, float sizeScale) {
     recolorSelection(settings.color);
     return true;
   }
+  auto pose = strokeTransform(document, settings.layer);
+  auto inv = inverse(pose);
+  p.position = transform(inv, p.position);
+  p.orientation = multiply(inv.orientation, p.orientation);
+  sizeScale /= pose.scale;
   if (!owner) {
     active = Stroke{};
     active.brush = settings.brush;
@@ -262,10 +280,11 @@ size_t Editor::hit(Vec3 point, float radius) const {
     auto &s = document.strokes[i - 1];
     if (hiddenLayers.count(s.layer))
       continue;
+    auto pose = strokeTransform(document, s.layer);
     for (size_t j = 0; j < s.points.size(); ++j)
-      if (segmentDistance(point, s.points[j].position,
-                          s.points[j ? j - 1 : 0].position) <=
-          radius + s.size * s.scale * .5f)
+      if (segmentDistance(point, transform(pose, s.points[j].position),
+                          transform(pose, s.points[j ? j - 1 : 0].position)) <=
+          radius + s.size * s.scale * pose.scale * .5f)
         return i - 1;
   }
   return std::numeric_limits<size_t>::max();
@@ -301,9 +320,11 @@ bool Editor::selectRay(Vec3 origin, Vec3 direction, float radius,
     const auto &s = document.strokes[i];
     if (hiddenLayers.count(s.layer))
       continue;
+    auto pose = strokeTransform(document, s.layer);
     for (size_t j = 0; j < s.points.size(); ++j) {
-      auto a = s.points[j].position, b = s.points[j ? j - 1 : j].position,
-           v = b - a, w = origin - a;
+      auto a = transform(pose, s.points[j].position),
+           b = transform(pose, s.points[j ? j - 1 : j].position), v = b - a,
+           w = origin - a;
       float c = dot(v, v), bDot = dot(direction, v), d = dot(direction, w),
             e = dot(v, w), den = c - bDot * bDot;
       float u = std::clamp(den > 1e-10f ? (e - bDot * d) / den : 0.f, 0.f, 1.f),
@@ -313,7 +334,7 @@ bool Editor::selectRay(Vec3 origin, Vec3 direction, float radius,
         u = c > 1e-10f ? std::clamp(e / c, 0.f, 1.f) : 0;
       }
       if (length(origin + direction * t - a - v * u) <=
-              radius + s.size * s.scale * .5f &&
+              radius + s.size * s.scale * pose.scale * .5f &&
           t < nearest) {
         best = i;
         nearest = t;
@@ -354,7 +375,9 @@ void Editor::transformSelection(Vec3 translation, Quat rotation, float scale) {
   size_t count = 0;
   for (auto i : selected)
     for (auto &p : document.strokes[i].points) {
-      center = center + p.position;
+      center = center +
+               transform(strokeTransform(document, document.strokes[i].layer),
+                         p.position);
       ++count;
     }
   if (!count)
@@ -368,14 +391,15 @@ void Editor::transformSelection(Vec3 translation, Quat rotation, float scale) {
   };
   std::vector<std::pair<size_t, Stroke>> changes;
   for (auto i : selected) {
-    auto s = document.strokes[i];
+    auto pose = strokeTransform(document, document.strokes[i].layer);
+    auto s = transformedStroke(document.strokes[i], pose);
     for (auto &p : s.points) {
       p.position = center + translation +
                    rotate(rotation, (p.position - center) * scale);
       p.orientation = mul(rotation, p.orientation);
     }
     s.size *= scale;
-    changes.push_back({i, std::move(s)});
+    changes.push_back({i, transformedStroke(std::move(s), inverse(pose))});
   }
   history->replace(changes);
   changed();
@@ -386,8 +410,10 @@ void Editor::duplicateSelection(Vec3 offset) {
   std::vector<Stroke> copies;
   for (auto i : selected) {
     auto s = document.strokes[i];
+    auto pose = inverse(strokeTransform(document, s.layer));
+    auto localOffset = rotate(pose.orientation, offset) * pose.scale;
     for (auto &p : s.points)
-      p.position = p.position + offset;
+      p.position = p.position + localOffset;
     copies.push_back(std::move(s));
   }
   auto first = document.strokes.size();
@@ -431,6 +457,8 @@ bool Editor::redo() {
 std::vector<uint32_t> Editor::layers() const {
   std::lock_guard lock(mutex);
   std::set<uint32_t> ids{settings.layer};
+  for (size_t i = 0; i < sourceLayerCount(document); ++i)
+    ids.insert(i);
   for (auto &s : document.strokes)
     ids.insert(s.layer);
   for (const auto &image : document.references)
@@ -444,9 +472,17 @@ std::string Editor::layerReferenceName(uint32_t layer) const {
       return image.name.empty() ? "Reference" : image.name;
   return {};
 }
+std::string Editor::layerName(uint32_t layer) const {
+  std::lock_guard lock(mutex);
+  return sourceLayerName(document, layer);
+}
 void Editor::layerVisible(uint32_t layer, bool visible) {
   std::lock_guard lock(mutex);
   finishLocked();
+  if (visible == !hiddenLayers.count(layer))
+    return;
+  setSourceLayerVisible(document, layer, visible);
+  history->markDirty();
   if (visible)
     hiddenLayers.erase(layer);
   else {

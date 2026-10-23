@@ -61,6 +61,7 @@ with tempfile.TemporaryDirectory() as tmp:
     assert a[1:]==b[1:] and len(a[1])==9
     root=a[0];assert 'KHR_materials_unlit' in root['extensionsUsed']
     assert len(root['scenes'][0]['nodes'])==3
+    assert any(n.get('extras',{}).get('sourceStrokeColor')==[1.5,-.20000000298023224,.800000011920929,.5] for n in root['nodes'])
     for layer in root['scenes'][0]['nodes']:
         node=root['nodes'][layer];assert len(node['children'])==3
         for child in node['children']:

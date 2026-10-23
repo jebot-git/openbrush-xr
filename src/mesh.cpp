@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "mesh.h"
+#include "scene.h"
 namespace ob {
 namespace {
 std::vector<Color> colors(const Stroke &s) {
@@ -154,6 +155,15 @@ Mesh strokeMesh(const Stroke &s, BrushShape shape, unsigned sides) {
     }
   }
   return m;
+}
+Mesh documentMesh(const Document &document, const Stroke &stroke) {
+  auto mesh = brushMesh(stroke);
+  auto pose = strokeTransform(document, stroke.layer);
+  for (auto &v : mesh.vertices) {
+    v.position = transform(pose, v.position);
+    v.normal = rotate(pose.orientation, v.normal);
+  }
+  return mesh;
 }
 Mesh brushMesh(const Stroke &s) {
   const auto &brush = brushFor(s.brush);

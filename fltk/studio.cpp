@@ -55,6 +55,7 @@ Studio::Studio() : dx::GpuWindow(1100, 790, "OpenBrush Native") {
            {"View/Reset view", 'r'},
            {"XR/Start XR painting", FL_F + 6},
            {"XR/Stop XR painting", 0},
+           {"Help/Artwork information...", 0},
            {"Help/Controls", 0},
            {"Help/About", 0}})
     menu.add(item.first, item.second, menuAction, this);
@@ -220,7 +221,7 @@ void Studio::syncControls() {
   auto value = editor.tools();
   tool.value(int(value.tool));
   for (size_t i = 0; i < brushes().size(); ++i)
-    if (brushes()[i].guid == value.brush)
+    if (sameBrush(brushes()[i].guid,value.brush))
       brush.value(i);
   size.value((value.tool == Tool::Paint ? value.size : value.eraser) * 1000);
   size.label(value.tool == Tool::Paint ? "Brush size (mm)"
@@ -238,12 +239,14 @@ void Studio::syncControls() {
     layerIds = ids;
     layerList.clear();
     for (auto id : ids)
-      layerList.add(("Layer " + std::to_string(id) +
-                     (editor.layerVisible(id) ? "" : " [hidden]") +
-                     (editor.layerReferenceName(id).empty()
-                          ? ""
-                          : " - " + editor.layerReferenceName(id)))
-                        .c_str());
+      layerList.add(
+          ((editor.layerName(id).empty() ? "Layer " + std::to_string(id)
+                                         : editor.layerName(id)) +
+           (editor.layerVisible(id) ? "" : " [hidden]") +
+           (editor.layerReferenceName(id).empty()
+                ? ""
+                : " - " + editor.layerReferenceName(id)))
+              .c_str());
     layerSignature = signature;
   }
   for (size_t i = 0; i < ids.size(); ++i)
@@ -359,6 +362,8 @@ void Studio::poll() {
                                    : "Left: tool · Right drag: orbit · "
                                      "Middle/Shift drag: pan · Wheel: zoom"))
           : error;
+  if (error.empty() && !frame.document->warnings.empty())
+    message += " · Import notes: Help > Artwork information";
   status.copy_label(message.c_str());
   canvas.redraw();
   if (std::chrono::steady_clock::now() >= nextRecovery) {
@@ -705,7 +710,17 @@ void Studio::command(const std::string &name) {
       startXR();
     else if (name == "Stop XR painting")
       xrStop = true;
-    else if (name == "Controls")
+    else if (name == "Artwork information...") {
+      auto frame = editor.frame();
+      std::string info =
+          "OpenBrush artwork\n" + std::to_string(editor.copy().strokes.size()) +
+          " strokes, " + std::to_string(editor.layers().size()) + " layers\n";
+      for (const auto &note : frame.document->warnings)
+        info += "\n" + note;
+      if (frame.document->warnings.empty())
+        info += "\nNo import notes.";
+      fl_message("%s", info.c_str());
+    } else if (name == "Controls")
       fl_message(
           "Desktop: left uses the tool; right drag orbits; middle/Shift drag "
           "pans; wheel zooms.\nXR: right trigger uses the tool; left trigger "

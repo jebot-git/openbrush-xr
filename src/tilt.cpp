@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // Format derived from Open Brush SketchWriter.cs and TiltFile.cs; see
 // provenance.
+#include "brush.h"
 #include "document.h"
 #include "reference.h"
+#include "scene.h"
+#include "tilt-directory.h"
 #include <archive.h>
 #include <archive_entry.h>
 #include <cstring>
@@ -86,7 +89,9 @@ Document decodeSketch(const Bytes &bytes, const Json &metadata) {
   if (r.u32() != 0)
     throw std::runtime_error("Unsupported reserved sketch header");
   Document d;
+  d.sketchVersion = version;
   d.metadata = metadata;
+  validateScene(d);
   d.sketchHeader = r.take(r.u32());
   auto brushList = metadata.at("BrushIndex").get<std::vector<std::string>>();
   uint32_t count = r.u32();
@@ -100,9 +105,13 @@ Document decodeSketch(const Bytes &bytes, const Json &metadata) {
     if (index >= brushList.size())
       throw std::runtime_error("Invalid brush index");
     s.brush = brushList[index];
+    s.savedBrushIndex = index;
     s.color = {r.real(), r.real(), r.real(), r.real()};
-    s.size = r.real() * .1f;
+    s.savedSize = r.real();
+    s.size = s.savedSize * .1f;
     uint32_t sm = r.u32(), pm = r.u32();
+    s.savedStrokeMask = sm & 31;
+    s.savedPointMask = pm & 3;
     for (unsigned bit = 0; bit < 32; ++bit)
       if (sm & (1u << bit)) {
         if (bit == 0)
@@ -129,7 +138,9 @@ Document decodeSketch(const Bytes &bytes, const Json &metadata) {
     s.points.reserve(points);
     for (uint32_t j = 0; j < points; ++j) {
       Point p;
-      p.position = {r.real() * .1f, r.real() * .1f, -r.real() * .1f};
+      Vec3 raw{r.real(), r.real(), r.real()};
+      p.savedPosition = raw;
+      p.position = {raw.x * .1f, raw.y * .1f, -raw.z * .1f};
       p.orientation = {-r.real(), -r.real(), r.real(), r.real()};
       for (unsigned bit = 0; bit < 32; ++bit)
         if (pm & (1u << bit)) {
@@ -147,21 +158,34 @@ Document decodeSketch(const Bytes &bytes, const Json &metadata) {
   }
   if (r.offset != bytes.size())
     throw std::runtime_error("Unexpected trailing sketch data");
-  if (metadata.contains("ModelIndex") || metadata.contains("ImageIndex") ||
-      metadata.contains("Videos"))
-    d.warnings.push_back("Referenced media retained in metadata but not yet "
-                         "rendered by the native frontend");
+  for (const char *key : {"ModelIndex", "Models", "ImageIndex", "Videos"}) {
+    auto media = metadata.find(key);
+    if (media != metadata.end() && !media->is_null() && !media->empty())
+      d.warnings.push_back(
+          std::string(key) +
+          ": external media references are preserved but not rendered.");
+  }
+  size_t fallback = 0;
+  for (const auto &stroke : d.strokes)
+    if (!knownBrush(stroke.brush))
+      ++fallback;
+  if (fallback)
+    d.warnings.push_back(std::to_string(fallback) +
+                         " strokes use native fallback geometry; original "
+                         "brush IDs and stroke data are preserved.");
   return d;
 }
 Bytes encodeSketch(const Document &d, Json &metadata) {
   Writer w;
   w.u32(0xc576a5cd);
-  bool extended = !d.sketchHeader.empty();
+  bool extended = d.sketchVersion == 6 || !d.sketchHeader.empty();
   for (auto &s : d.strokes)
     for (auto &item : s.extensions)
       if (item.first >= 16)
         extended = true;
-  w.u32(extended ? 6 : 5);
+  if (d.sketchVersion != 0 && d.sketchVersion != 5 && d.sketchVersion != 6)
+    throw std::runtime_error("Unsupported sketch version");
+  w.u32(d.sketchVersion == 5 ? 5 : (extended ? 6 : 5));
   w.u32(0);
   w.u32(d.sketchHeader.size());
   w.append(d.sketchHeader);
@@ -169,6 +193,8 @@ Bytes encodeSketch(const Document &d, Json &metadata) {
     throw std::runtime_error("Too many strokes");
   w.u32(d.strokes.size());
   std::vector<std::string> brushes;
+  if (d.metadata.contains("BrushIndex"))
+    brushes = d.metadata.at("BrushIndex").get<std::vector<std::string>>();
   size_t total = 0;
   for (const auto &s : d.strokes) {
     validate(s);
@@ -177,13 +203,33 @@ Bytes encodeSketch(const Document &d, Json &metadata) {
     total += s.points.size();
     auto it = std::find(brushes.begin(), brushes.end(), s.brush);
     uint32_t index = it - brushes.begin();
+    if (s.savedBrushIndex < brushes.size() &&
+        brushes[s.savedBrushIndex] == s.brush)
+      index = s.savedBrushIndex;
     if (it == brushes.end())
       brushes.push_back(s.brush);
     w.u32(index);
     for (float v : {s.color.r, s.color.g, s.color.b, s.color.a})
       w.real(v);
-    w.real(s.size * 10);
-    uint32_t sm = 31, pm = 3;
+    w.real(s.savedSize > 0 && s.size == s.savedSize * .1f ? s.savedSize
+                                                          : s.size * 10);
+    uint32_t sm = s.savedStrokeMask & 31, pm = s.savedPointMask & 3;
+    if (s.flags)
+      sm |= 1;
+    if (s.scale != 1)
+      sm |= 2;
+    if (s.group)
+      sm |= 4;
+    if (s.seed)
+      sm |= 8;
+    if (s.layer)
+      sm |= 16;
+    for (const auto &p : s.points) {
+      if (p.pressure != 1)
+        pm |= 1;
+      if (p.timeMs)
+        pm |= 2;
+    }
     for (const auto &e : s.extensions) {
       if (e.first < 5 || e.first > 31 || (e.first < 16 && e.second.size() != 4))
         throw std::runtime_error("Invalid stroke extension");
@@ -197,11 +243,16 @@ Bytes encodeSketch(const Document &d, Json &metadata) {
       }
     w.u32(sm);
     w.u32(pm);
-    w.u32(s.flags);
-    w.real(s.scale);
-    w.u32(s.group);
-    w.u32(s.seed);
-    w.u32(s.layer);
+    if (sm & 1)
+      w.u32(s.flags);
+    if (sm & 2)
+      w.real(s.scale);
+    if (sm & 4)
+      w.u32(s.group);
+    if (sm & 8)
+      w.u32(s.seed);
+    if (sm & 16)
+      w.u32(s.layer);
     for (const auto &e : s.extensions) {
       if (e.first >= 16)
         w.u32(e.second.size());
@@ -209,12 +260,23 @@ Bytes encodeSketch(const Document &d, Json &metadata) {
     }
     w.u32(s.points.size());
     for (const auto &p : s.points) {
-      for (float v : {p.position.x * 10, p.position.y * 10, -p.position.z * 10,
-                      -p.orientation.x, -p.orientation.y, p.orientation.z,
-                      p.orientation.w})
+      Vec3 raw{p.position.x * 10, p.position.y * 10, -p.position.z * 10};
+      if (p.savedPosition) {
+        auto original = *p.savedPosition;
+        if (p.position.x == original.x * .1f)
+          raw.x = original.x;
+        if (p.position.y == original.y * .1f)
+          raw.y = original.y;
+        if (p.position.z == -original.z * .1f)
+          raw.z = original.z;
+      }
+      for (float v : {raw.x, raw.y, raw.z, -p.orientation.x, -p.orientation.y,
+                      p.orientation.z, p.orientation.w})
         w.real(v);
-      w.real(p.pressure);
-      w.u32(p.timeMs);
+      if (pm & 1)
+        w.real(p.pressure);
+      if (pm & 2)
+        w.u32(p.timeMs);
       for (unsigned bit = 2; bit < 32; ++bit)
         if (pm & (1u << bit)) {
           auto it = p.extensions.find(bit);
@@ -232,11 +294,25 @@ Bytes encodeSketch(const Document &d, Json &metadata) {
 }
 Document readTilt(const std::filesystem::path &path) {
   std::map<std::string, Bytes> files;
+  Bytes containerHeader;
   if (std::filesystem::is_directory(path)) {
-    for (auto name :
-         {"metadata.json", "data.sketch", "thumbnail.png", "hires.png"})
-      if (std::filesystem::exists(path / name))
-        files[name] = readFile(path / name);
+    size_t total = 0;
+    for (const auto &entry :
+         std::filesystem::recursive_directory_iterator(path)) {
+      if (entry.is_symlink())
+        throw std::runtime_error(
+            "Symlinks are not supported in loose .tilt artwork");
+      if (entry.is_directory())
+        continue;
+      if (!entry.is_regular_file())
+        throw std::runtime_error("Unsupported loose .tilt entry");
+      auto data = readFile(entry.path());
+      if (data.size() > limit - total)
+        throw std::runtime_error("Expanded sketch exceeds 256 MiB");
+      total += data.size();
+      files.emplace(entry.path().lexically_relative(path).generic_string(),
+                    std::move(data));
+    }
   } else {
     auto bytes = readFile(path);
     if (bytes.size() < 20)
@@ -250,6 +326,7 @@ Document readTilt(const std::filesystem::path &path) {
       throw std::runtime_error("Unsupported .tilt header");
     if (memcmp(bytes.data() + length, "PK\x03\x04", 4))
       throw std::runtime_error("Missing ZIP container");
+    containerHeader.assign(bytes.begin(), bytes.begin() + length);
     auto a = archive_read_new();
     archive_read_support_format_zip(a);
     size_t total = 0;
@@ -263,11 +340,16 @@ Document readTilt(const std::filesystem::path &path) {
         std::string name = archive_entry_pathname(entry);
         std::filesystem::path relative(name);
         if (name.empty() || relative.is_absolute() ||
-            archive_entry_filetype(entry) != AE_IFREG)
+            (archive_entry_filetype(entry) != AE_IFREG &&
+             archive_entry_filetype(entry) != AE_IFDIR))
           throw std::runtime_error("Unsupported .tilt archive entry");
         for (const auto &part : relative)
           if (part == "..")
             throw std::runtime_error("Invalid .tilt archive path");
+        if (archive_entry_filetype(entry) == AE_IFDIR) {
+          archive_read_data_skip(a);
+          continue;
+        }
         if (files.count(name))
           throw std::runtime_error("Duplicate .tilt archive entry");
         auto size = archive_entry_size(entry);
@@ -300,10 +382,11 @@ Document readTilt(const std::filesystem::path &path) {
     metadata = files.find("main.json");
   if (metadata == files.end())
     throw std::runtime_error("Missing metadata.json");
+  auto metadataName=metadata->first;
   auto d = decodeSketch(files.at("data.sketch"), Json::parse(metadata->second));
   files.erase("data.sketch");
-  files.erase("metadata.json");
-  files.erase("main.json");
+  files.erase(metadataName);
+  d.containerHeader = std::move(containerHeader);
   d.attachments = std::move(files);
   loadReferences(d);
   return d;
@@ -316,11 +399,26 @@ void writeTilt(const Document &d, const std::filesystem::path &path) {
   files["data.sketch"] = std::move(sketch);
   auto json = metadata.dump(2);
   files["metadata.json"] = Bytes(json.begin(), json.end());
+  if (std::filesystem::is_directory(path)) {
+    writeTiltDirectory(path, files);
+    return;
+  }
   Writer w;
-  w.u32(0x546c6974);
-  w.u32(0x00010010);
-  w.u32(0);
-  w.u32(0);
+  if (d.containerHeader.empty()) {
+    w.u32(0x546c6974);
+    w.u32(0x00010010);
+    w.u32(0);
+    w.u32(0);
+  } else {
+    Reader header{d.containerHeader};
+    if (header.u32() != 0x546c6974)
+      throw std::runtime_error("Invalid preserved .tilt header");
+    auto packed = header.u32();
+    if ((packed >> 16) != 1 || (packed & 65535) != d.containerHeader.size() ||
+        d.containerHeader.size() < 16)
+      throw std::runtime_error("Invalid preserved .tilt header");
+    w.append(d.containerHeader);
+  }
   auto a = archive_write_new();
   archive_write_set_format_zip(a);
   archive_write_set_options(a, "zip:compression=store");

@@ -80,6 +80,7 @@ public:
   bool redo();
   std::vector<uint32_t> layers() const;
   std::string layerReferenceName(uint32_t layer) const;
+  std::string layerName(uint32_t layer) const;
   void layerVisible(uint32_t layer, bool visible);
   bool layerVisible(uint32_t layer) const;
 };

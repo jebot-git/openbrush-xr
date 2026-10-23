@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "gltf.h"
 #include "mesh.h"
+#include "scene.h"
 #include <cstring>
 #include <limits>
 namespace ob {
@@ -63,7 +64,7 @@ void writeGltf(const Document &document, const std::filesystem::path &path) {
   for (size_t strokeIndex = 0; strokeIndex < document.strokes.size();
        ++strokeIndex) {
     const auto &stroke = document.strokes[strokeIndex];
-    auto mesh = brushMesh(stroke);
+    auto mesh = documentMesh(document, stroke);
     if (mesh.indices.empty())
       continue;
     if (mesh.vertices.size() > std::numeric_limits<uint32_t>::max() ||
@@ -78,7 +79,9 @@ void writeGltf(const Document &document, const std::filesystem::path &path) {
     for (const auto &v : mesh.vertices) {
       for (auto value :
            {v.position.x, v.position.y, v.position.z, v.normal.x, v.normal.y,
-            v.normal.z, v.color.r, v.color.g, v.color.b, v.color.a})
+            v.normal.z, std::clamp(v.color.r, 0.f, 1.f),
+            std::clamp(v.color.g, 0.f, 1.f), std::clamp(v.color.b, 0.f, 1.f),
+            std::clamp(v.color.a, 0.f, 1.f)})
         real(binary, value);
       low = {std::min(low.x, v.position.x), std::min(low.y, v.position.y),
              std::min(low.z, v.position.z)};
@@ -151,10 +154,15 @@ void writeGltf(const Document &document, const std::filesystem::path &path) {
                       {{"openbrushBrushGuid", stroke.brush},
                        {"layer", stroke.layer},
                        {"group", stroke.group},
-                       {"sourceStroke", strokeIndex}}}});
+                       {"sourceStroke", strokeIndex},
+                       {"sourceStrokeColor",
+                        {stroke.color.r, stroke.color.g, stroke.color.b,
+                         stroke.color.a}}}}});
     if (!layers.count(stroke.layer)) {
       layers[stroke.layer] = nodes.size();
-      nodes.push_back({{"name", "Layer " + std::to_string(stroke.layer)},
+      nodes.push_back({{"name", sourceLayerName(document, stroke.layer).empty()
+                                    ? "Layer " + std::to_string(stroke.layer)
+                                    : sourceLayerName(document, stroke.layer)},
                        {"children", Json::array()},
                        {"extras", {{"layer", stroke.layer}}}});
     }

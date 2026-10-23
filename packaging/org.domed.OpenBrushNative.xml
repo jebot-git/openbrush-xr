@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
-  <mime-type type="application/x-openbrush-tilt">
+  <mime-type type="application/vnd.google-tiltbrush.tilt">
+    <alias type="application/x-openbrush-tilt"/>
+    <magic priority="70"><match type="string" offset="0" value="tilT"/></magic>
     <comment>Open Brush artwork</comment>
     <glob pattern="*.tilt"/>
     <icon name="org.domed.OpenBrushNative"/>

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "palette.h"
+#include "scene.h"
 #include <fontconfig/fontconfig.h>
 #include <ft2build.h>
 #include FT_FREETYPE_H
@@ -223,7 +224,7 @@ const std::vector<PaletteButton> &Palette::layout(const EditorFrame &frame) {
   for (size_t i = 0; i < brushes().size(); ++i)
     add(12 + (i % 4) * 156, 142 + (i / 4) * 52, 148, 44, brushes()[i].name,
         "brush:" + std::to_string(i),
-        frame.settings.brush == brushes()[i].guid);
+        sameBrush(frame.settings.brush,brushes()[i].guid));
   for (int i = 0; i < 8; ++i) {
     add(12 + i * 78, 270, 70, 42, colorNames[i], "color:" + std::to_string(i),
         same(frame.settings.color, colorPresets[i]));
@@ -312,7 +313,10 @@ bool Palette::activate(const std::string &cmd, Editor &editor,
     Vec3 low{1e30f, 1e30f, 1e30f}, high{-1e30f, -1e30f, -1e30f};
     bool any = false;
     for (auto &s : content.document->strokes)
-      for (auto &p : s.points) {
+      for (auto &raw : s.points) {
+        auto p = raw;
+        p.position = ob::transform(strokeTransform(*content.document, s.layer),
+                                   p.position);
         any = true;
         low = {std::min(low.x, p.position.x), std::min(low.y, p.position.y),
                std::min(low.z, p.position.z)};
