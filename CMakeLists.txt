@@ -7,7 +7,7 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 find_package(LibArchive REQUIRED)
 find_package(Threads REQUIRED)
-add_library(brush-core src/document.cpp src/tilt.cpp src/mesh.cpp src/brush.cpp src/editor.cpp src/navigation.cpp src/controller-profiles.cpp src/save-worker.cpp)
+add_library(brush-core src/document.cpp src/tilt.cpp src/mesh.cpp src/brush.cpp src/editor.cpp src/navigation.cpp src/controller-profiles.cpp src/save-worker.cpp src/gltf.cpp)
 target_include_directories(brush-core PUBLIC src)
 target_link_libraries(brush-core PUBLIC LibArchive::LibArchive Threads::Threads)
 target_compile_options(brush-core PRIVATE -Wall -Wextra -Wpedantic)
@@ -107,3 +107,11 @@ install(FILES packaging/org.domed.OpenBrushNative.xml
 install(FILES README.md LICENSE NOTICE third_party/upstream.json
   third_party/ui-adapters.json third_party/LICENSE.native-graphics
   DESTINATION ${CMAKE_INSTALL_DATADIR}/doc/openbrush-native)
+if(BUILD_TESTING)
+  add_executable(brush-gltf-fixture tests/gltf.cpp)
+  target_compile_options(brush-gltf-fixture PRIVATE -UNDEBUG)
+  target_link_libraries(brush-gltf-fixture PRIVATE brush-core)
+  add_test(NAME gltf-export COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/gltf.py
+    $<TARGET_FILE:brush-gltf-fixture> $<TARGET_FILE:openbrush-tool> $<TARGET_FILE:openbrush-native>
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/upstream-one-stroke.tilt)
+endif()

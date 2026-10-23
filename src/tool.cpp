@@ -1,10 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "document.h"
+#include "gltf.h"
 #include "mesh.h"
 #include <iostream>
 int main(int argc, char **argv) try {
-  if (argc < 2) {
-    std::cerr << "Usage: openbrush-tool SKETCH.tilt [ROUNDTRIP.tilt]\n";
+  if (argc == 4 && std::string(argv[1]) == "--export-gltf") {
+    ob::writeGltf(ob::readTilt(argv[2]), argv[3]);
+    return 0;
+  }
+  if (argc < 2 || argc > 3) {
+    std::cerr << "Usage: openbrush-tool SKETCH.tilt [ROUNDTRIP.tilt]\n       openbrush-tool --export-gltf SKETCH.tilt OUTPUT.gltf|OUTPUT.glb\n";
     return 2;
   }
   auto d = ob::readTilt(argv[1]);

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "studio.h"
+#include "gltf.h"
 #include "xr.h"
 #include <FL/Fl_Color_Chooser.H>
 #include <FL/Fl_Native_File_Chooser.H>
@@ -37,6 +38,7 @@ Studio::Studio() : dx::GpuWindow(1100, 790, "OpenBrush Native") {
            {"File/Open...", FL_CTRL + 'o'},
            {"File/Save", FL_CTRL + 's'},
            {"File/Save as...", FL_CTRL + FL_SHIFT + 's'},
+           {"File/Export glTF...", 0},
            {"File/Quit", FL_CTRL + 'q'},
            {"Edit/Undo", FL_CTRL + 'z'},
            {"Edit/Redo", FL_CTRL + FL_SHIFT + 'z'},
@@ -271,7 +273,7 @@ void Studio::poll() {
         currentPath = result.path == recoveredFrom ? "" : result.path;
         canvas.fit();
         syncControls();
-      } else {
+      } else if (!result.exported) {
         editor.saved(result.version);
         currentPath = result.path;
         removeRecovery();
@@ -423,6 +425,38 @@ bool Studio::save(bool saveAs) {
   });
   return true;
 }
+void Studio::exportDialog() {
+  if (io.valid()) { error = "Wait for the file operation to finish."; return; }
+  Fl_Native_File_Chooser chooser;
+  chooser.title("Export glTF");
+  chooser.type(Fl_Native_File_Chooser::BROWSE_SAVE_FILE);
+  chooser.options(Fl_Native_File_Chooser::SAVEAS_CONFIRM);
+  chooser.filter("glTF (embedded buffer)\t*.gltf\nBinary glTF\t*.glb");
+  auto preset = currentPath.empty() ? std::filesystem::path("Untitled.gltf") : std::filesystem::path(currentPath).replace_extension(".gltf");
+  chooser.preset_file(preset.c_str());
+  if (chooser.show() != 0) return;
+  std::string destination = chooser.filename();
+  auto extension = std::filesystem::path(destination).extension().string();
+  if (extension != ".gltf" && extension != ".glb") {
+    destination += chooser.filter_value() == 1 ? ".glb" : ".gltf";
+    if (std::filesystem::exists(destination) && fl_choice("Replace existing export %s?", "Cancel", "Replace", nullptr, destination.c_str()) != 1) return;
+  }
+  exportGltf(destination);
+}
+bool Studio::exportGltf(const std::string &path) {
+  if (io.valid()) { error = "Wait for the file operation to finish."; return false; }
+  editor.finish();
+  error.clear();
+  io = std::async(std::launch::async, [this, path] {
+    IoResult result;
+    result.path = path;
+    result.exported = true;
+    try { auto snapshot = editor.snapshot(); writeGltf(snapshot.document, path); }
+    catch (const std::exception &e) { result.error = e.what(); }
+    return result;
+  });
+  return true;
+}
 void Studio::startXR(unsigned frames) {
   if (xr.valid() || io.valid())
     return;
@@ -517,6 +551,8 @@ void Studio::command(const std::string &name) {
       save();
     else if (name == "Save as...")
       save(true);
+    else if (name == "Export glTF...")
+      exportDialog();
     else if (name == "Quit")
       close();
     else if (name == "Undo")

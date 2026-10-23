@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "panel-render.h"
 #include "save-worker.h"
+#include "gltf.h"
 #include "xr.h"
 #include <fstream>
 #include <iostream>
@@ -76,7 +77,7 @@ void renderImage(const ob::Document &d, const std::string &file,
 }
 } // namespace
 int xrMain(int argc, char **argv) try {
-  std::string input, output, capture;
+  std::string input, output, capture, gltf;
   unsigned frames = 0;
   bool example = false, overlay = true, withPalette = false;
   for (int i = 1; i < argc; ++i) {
@@ -96,6 +97,8 @@ int xrMain(int argc, char **argv) try {
       overlay = false;
     else if (arg == "--open" && i + 1 < argc)
       input = argv[++i];
+    else if (arg == "--export-gltf" && i + 1 < argc)
+      gltf = argv[++i];
     else if (arg == "--save" && i + 1 < argc)
       output = argv[++i];
     else if (arg == "--palette-capture" && i + 1 < argc) {
@@ -111,6 +114,7 @@ int xrMain(int argc, char **argv) try {
              "[--demo]\n  --probe          Inspect runtime without starting an "
              "XR session\n  --render out.ppm Render a diagnostic image without "
              "an XR runtime\n  --frames N       Exit after N XR frames\n  "
+             "--export-gltf FILE.gltf|FILE.glb  Export native brush meshes\n  "
              "--exclusive      Explicitly allow a primary session without "
              "overlay support\nRight trigger: paint; left trigger: erase; "
              "right A/B: undo/redo. Left X/menu: palette. Squeeze or Move "
@@ -122,6 +126,10 @@ int xrMain(int argc, char **argv) try {
   ob::Document document = example ? demo() : ob::Document{};
   if (!input.empty())
     document = ob::readTilt(input);
+  if (!gltf.empty()) {
+    ob::writeGltf(document, gltf);
+    return 0;
+  }
   if (!capture.empty()) {
     renderImage(document, capture, withPalette);
     return 0;

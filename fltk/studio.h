@@ -58,7 +58,7 @@ class Studio : public dx::GpuWindow {
   struct IoResult {
     Document document;
     std::string path, error;
-    bool load = false;
+    bool load = false, exported = false;
     uint64_t version = 0;
   };
   std::future<IoResult> io;
@@ -78,6 +78,7 @@ class Studio : public dx::GpuWindow {
   void quiet(std::function<void()> next);
   void maybeDiscard(std::function<void()> next);
   void openDialog();
+  void exportDialog();
   bool save(bool saveAs = false);
   void autosave();
   void removeRecovery();
@@ -88,6 +89,7 @@ public:
   void resize(int x, int y, int w, int h) override;
   void command(const std::string &name);
   void open(const std::string &path);
+  bool exportGltf(const std::string &path);
   void startXR(unsigned frames = 0);
   void close();
   void restore();

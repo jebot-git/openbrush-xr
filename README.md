@@ -1,4 +1,7 @@
-# OpenBrush Native for de-xr
+# OpenBrush XR for de-xr
+
+Source: [jebot-git/openbrush-xr](https://github.com/jebot-git/openbrush-xr).
+The executable remains `openbrush-native`.
 
 A native C++ OpenXR painting implementation based on Open Brush's editable
 artwork format. The application uses OpenGL and FLTK directly. No Unity, Godot,
@@ -163,8 +166,41 @@ must be released before painting resumes. The same guard applies on startup.
 The production interaction path is covered by injected tracked-pose/action tests,
 including simple-controller trigger grabs. Physical user gestures and the full
 creative workflow still need manual verification. A headset-native file browser,
-additional brush fidelity/export work remain
+additional brush fidelity work remain
 outstanding; FLTK dialogs provide file operations in desktop mode.
+
+## glTF export
+
+Choose **File → Export glTF...** from DomeD's universal menu (or the local menu
+outside a menu-host session). Select `.gltf` for JSON with an embedded buffer or
+`.glb` for binary glTF. Both produce one self-contained, atomically written file.
+Export runs in the background and leaves the editable `.tilt` destination and
+unsaved state unchanged. All document layers are exported, including hidden
+layers; the temporary desktop/XR canvas navigation transform is excluded.
+
+```sh
+openbrush-native --open artwork.tilt --export-gltf artwork.glb
+openbrush-native --demo --export-gltf example.gltf
+openbrush-tool --export-gltf artwork.tilt artwork.gltf
+```
+
+The exporter uses glTF 2.0 and the same native brush meshes as the renderer,
+including pressure-dependent widths, normals, per-point RGBA colors, alpha
+blending and double-sided surfaces. Coordinates remain right-handed, Y-up,
+in meters. Stroke nodes are grouped by layer; brush GUIDs, source indices and
+group IDs are recorded in `extras`. Light uses `KHR_materials_unlit`; other
+brushes use rough, nonmetallic materials. Partial emission and original Unity
+materials, brush textures, reference media and scene transforms are not
+reconstructed. Export is a mesh interchange format; keep `.tilt` for editable
+strokes and preserved source metadata. Unknown brushes use the native fallback.
+
+The `.gltf` and `.glb` outputs follow the
+[Khronos glTF 2.0 specification](https://registry.khronos.org/glTF/).
+Tests independently decode buffer/accessor data and check bounds, normals,
+indices, colors, alpha, layers, empty scenes, both CLIs and export failure
+preservation. The FLTK interaction test checks asynchronous export and that it
+does not mark the drawing saved. Sample exports also pass Khronos glTF Validator
+with zero errors or warnings; that validator is not a runtime dependency.
 
 ## Artwork and brush coverage
 
@@ -183,7 +219,7 @@ Per-point replacement/multiply/add color extensions are interpreted. Unknown
 brush GUIDs are preserved and rendered using the wire fallback. Referenced
 models/images/videos, scene/layer transforms, environments and original brush
 materials/textures are not yet rendered; their metadata is retained. Additional
-export formats are also outstanding.
+export formats beyond glTF are not implemented.
 
 ## Verification and provenance
 

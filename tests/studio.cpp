@@ -78,6 +78,14 @@ int main(int argc, char **argv) try {
           "Real artwork must load asynchronously");
   s.command("Select all");
   s.command("Duplicate selection");
+  auto exportPath = std::string(argv[1]) + ".glb";
+  auto editablePath = s.filePath();
+  require(s.model().frame().dirty, "Drawing must be dirty before export");
+  require(s.menuBar().find_item("File/Export glTF..."), "Export must be available in universal menu commands");
+  require(s.exportGltf(exportPath), "Start background glTF export");
+  wait([&] { return !s.busy(); });
+  require(std::filesystem::file_size(exportPath) > 20, "Export must produce geometry");
+  require(s.filePath() == editablePath && s.model().frame().dirty, "Export must preserve editable path and dirty state");
   s.command("Save");
   wait([&] { return !s.busy(); });
   require(readTilt(argv[1]).strokes.size() == 2,

@@ -86,7 +86,7 @@ int main(int argc, char **argv) try {
     std::string arg = argv[i];
     if (arg == "--xr" || arg == "--headless" || arg == "--probe" ||
         arg == "--render" || arg == "--palette-capture" || arg == "--version" ||
-        arg == "--frames" || arg == "--exclusive")
+        arg == "--frames" || arg == "--export-gltf" || arg == "--exclusive")
       return xrMain(argc, argv);
   }
   if (argc > 1 && std::string(argv[1]) == "--help") {
@@ -95,7 +95,7 @@ int main(int argc, char **argv) try {
            "[artwork.tilt] / --open FILE: open editable artwork\n  --demo: "
            "sample drawing\n  --xr: native stereo OpenXR painting without a "
            "desktop window\n  --probe: inspect OpenXR runtime\n  --render "
-           "FILE: diagnostic offscreen GL render\n  --x11: optional X11 "
+           "FILE: diagnostic offscreen GL render\n  --export-gltf FILE.gltf|FILE.glb: export brush geometry\n  --x11: optional X11 "
            "backend when explicitly enabled at build time\n";
     return 0;
   }
